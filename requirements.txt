@@ -1,0 +1,6 @@
+customtkinter>=6.0.0
+yt-dlp>=2026.08.19
+curl_cffi>=0.7.0
+imageio-ffmpeg>=0.6.0
+pillow>=11.0.0
+requests>=2.31.0
