@@ -124,14 +124,25 @@ class SecurityValidator:
 
     @classmethod
     def sanitize_error_message(cls, err: Exception) -> str:
-        """Sanitize error messages to avoid leaking sensitive internal system paths."""
+        """Sanitize error messages to avoid leaking sensitive internal system paths and format user-actionable alerts."""
         raw_msg = str(err)
+        lower_msg = raw_msg.lower()
+
+        # YouTube Bot Verification / Login Required Check
+        if (
+            "sign in to confirm you’re not a bot" in lower_msg
+            or "sign in to confirm you're not a bot" in lower_msg
+            or ("bot" in lower_msg and "confirm" in lower_msg)
+            or "login_required" in lower_msg
+        ):
+            return "YouTube Bot Verification: YouTube requires sign-in cookies for this video. Click '🍪 Cookies' in the top bar to attach your cookies.txt file."
+
         # Strip user home directory path if present
         home_dir = os.path.expanduser("~")
         if home_dir in raw_msg:
             raw_msg = raw_msg.replace(home_dir, "~")
         # Keep clean message length
-        return raw_msg[:120]
+        return raw_msg[:140]
 
 
 class PlatformInfo:
@@ -234,6 +245,36 @@ class DownloaderEngine:
         self.ffmpeg_path = FFMPEG_PATH
         self.node_path = shutil.which("node")
         self._cancel_event = threading.Event()
+        self.cookie_file: Optional[str] = self._discover_cookie_file()
+
+    def _discover_cookie_file(self) -> Optional[str]:
+        """Automatically discover valid cookies.txt files in common paths."""
+        candidates = [
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "cookies.txt")),
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "assets", "cookies.txt")),
+            os.path.abspath(os.path.join(os.path.expanduser("~"), ".socialdart", "cookies.txt")),
+            os.path.abspath(os.path.join(os.path.expanduser("~"), "Downloads", "cookies.txt")),
+        ]
+        for path in candidates:
+            if os.path.exists(path) and os.path.isfile(path) and os.path.getsize(path) > 10:
+                return path
+        return None
+
+    def set_cookie_file(self, path: Optional[str]) -> bool:
+        """Set or update the active cookie file."""
+        if path and os.path.exists(path) and os.path.isfile(path) and os.path.getsize(path) > 10:
+            self.cookie_file = os.path.abspath(path)
+            return True
+        elif path is None:
+            self.cookie_file = None
+            return True
+        return False
+
+    def get_cookie_file(self) -> Optional[str]:
+        """Return the path to active cookie file if valid."""
+        if self.cookie_file and os.path.exists(self.cookie_file) and os.path.isfile(self.cookie_file):
+            return self.cookie_file
+        return None
 
     def get_base_ydl_opts(self) -> Dict[str, Any]:
         """Generate base yt-dlp options with anti-bot, ffmpeg, security, and turbo speed configs."""
@@ -271,11 +312,19 @@ class DownloaderEngine:
         if self.node_path:
             opts["js_runtimes"] = {"node": {}}
 
-        # Extractor specific args for TikTok no-watermark bypass
+        # Inject active cookies file if available
+        active_cookie = self.get_cookie_file()
+        if active_cookie:
+            opts["cookiefile"] = active_cookie
+
+        # Extractor specific args for TikTok no-watermark bypass and YouTube fallbacks
         opts["extractor_args"] = {
+            "youtube": {
+                "player_client": ["web", "mweb", "android"],
+            },
             "tiktok": {
-                "app_version": ["latest"]
-            }
+                "app_version": ["latest"],
+            },
         }
 
         return opts
