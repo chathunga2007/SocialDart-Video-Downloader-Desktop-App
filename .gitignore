@@ -1,19 +1,28 @@
-# Virtual Environment
+# ==============================
+# Virtual Environments
+# ==============================
 .venv/
 venv/
 env/
 ENV/
+env.bak/
+venv.bak/
 
-# Python Cache
+# ==============================
+# Python Bytecode & Cache
+# ==============================
 __pycache__/
 *.py[cod]
 *$py.class
 *.pyc
 
-# Distribution / Packaging
+# ==============================
+# PyInstaller & Build Outputs
+# ==============================
 build/
-develop-eggs/
 dist/
+*.spec
+develop-eggs/
 downloads/
 eggs/
 .eggs/
@@ -27,8 +36,54 @@ wheels/
 .installed.cfg
 *.egg
 
-# OS & Temp Files
+# ==============================
+# Windows Executables & Inno Setup
+# ==============================
+*.exe
+*.msi
+Output/
+*.iss~
+
+# ==============================
+# Downloaded Media & Temporary Test Files
+# ==============================
+*.mp4
+*.m4a
+*.mp3
+*.webm
+*.mkv
+*.part
+*.ytdl
+*.aria2
+
+# ==============================
+# Environment & Secret Configurations
+# ==============================
+.env
+.env.*
+*.local
+cookies.txt
+*.cookies
+*.cookie
+
+# ==============================
+# IDEs, Editors & OS Files
+# ==============================
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 .DS_Store
 Thumbs.db
-*.tmp
+ehthumbs.db
+desktop.ini
+
+# ==============================
+# Logs & Temp Files
+# ==============================
 *.log
+*.tmp
+*.temp
