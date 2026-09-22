@@ -366,7 +366,7 @@ class SocialDartApp(ctk.CTk):
 
         version_lbl = ctk.CTkLabel(
             status_bar,
-            text="SocialDart v2.0 Ultra • By Chathunga Bimsara",
+            text="SocialDart v1.0 Ultra • By Chathunga Bimsara",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color=("#0284C7", "#38BDF8"),
         )
