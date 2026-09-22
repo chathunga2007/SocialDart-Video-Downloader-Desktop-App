@@ -15,6 +15,7 @@ import io
 import time
 import urllib.request
 import webbrowser
+import subprocess
 from typing import Optional
 from PIL import Image, ImageTk
 
@@ -28,7 +29,7 @@ except Exception:
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
-from downloader_engine import DownloaderEngine, PlatformInfo, FFMPEG_PATH
+from downloader_engine import DownloaderEngine, PlatformInfo, FFMPEG_PATH, SecurityValidator
 
 
 # Configure initial appearance
@@ -918,25 +919,34 @@ class SocialDartApp(ctk.CTk):
         ))
 
     def choose_save_directory(self):
-        """Open folder browser dialog to pick download directory."""
+        """Open folder browser dialog to pick download directory with security checks."""
         chosen = filedialog.askdirectory(initialdir=self.save_dir, title="Select Download Folder")
         if chosen:
-            self.save_dir = chosen
+            is_safe, res = SecurityValidator.is_safe_directory(chosen)
+            if not is_safe:
+                messagebox.showerror("Security Warning", f"Cannot save to the selected folder:\n\n{res}")
+                return
+            self.save_dir = res
             self.path_entry.delete(0, "end")
-            self.path_entry.insert(0, chosen)
+            self.path_entry.insert(0, res)
 
     def open_download_folder(self):
-        """Open the downloads directory or reveal downloaded file in File Explorer."""
+        """Open the downloads directory or reveal downloaded file in File Explorer securely without shell=True."""
         folder = self.path_entry.get().strip() or self.save_dir
         if self.last_downloaded_path and os.path.exists(self.last_downloaded_path):
             try:
-                os.system(f'explorer /select,"{os.path.abspath(self.last_downloaded_path)}"')
+                norm_file = os.path.abspath(os.path.normpath(self.last_downloaded_path))
+                subprocess.Popen(["explorer.exe", f"/select,{norm_file}"], shell=False)
                 return
             except Exception:
                 pass
 
         if os.path.exists(folder):
-            webbrowser.open(os.path.abspath(folder))
+            try:
+                norm_folder = os.path.abspath(os.path.normpath(folder))
+                subprocess.Popen(["explorer.exe", norm_folder], shell=False)
+            except Exception:
+                webbrowser.open(folder)
         else:
             messagebox.showwarning("Folder Not Found", f"Directory does not exist:\n{folder}")
 
@@ -1017,11 +1027,19 @@ class SocialDartApp(ctk.CTk):
             self.progress_status_lbl.configure(text="Status: Ready (Metadata skipped)", text_color=("#64748B", "#94A3B8"))
 
     def _load_thumbnail(self, thumb_url: str):
-        """Fetch and render thumbnail image."""
+        """Fetch and render thumbnail image safely with decompression bomb and memory protections."""
+        is_safe, _ = SecurityValidator.is_safe_url(thumb_url)
+        if not is_safe:
+            return
+
         try:
-            req = urllib.request.Request(thumb_url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=10) as response:
-                img_data = response.read()
+            # Prevent decompression bomb attacks
+            Image.MAX_IMAGE_PIXELS = 25_000_000
+
+            req = urllib.request.Request(thumb_url, headers={"User-Agent": "SocialDart-App/1.0"})
+            with urllib.request.urlopen(req, timeout=8) as response:
+                # Limit thumbnail download to max 5MB
+                img_data = response.read(5 * 1024 * 1024)
             pil_img = Image.open(io.BytesIO(img_data))
             
             pil_img.thumbnail((176, 106))
@@ -1040,13 +1058,25 @@ class SocialDartApp(ctk.CTk):
     # ----------------------------------------------------
 
     def start_download_thread(self):
-        """Initiate download in background thread with pulsing download animation."""
+        """Initiate download in background thread with input validation and security checks."""
         url = self.url_entry.get().strip()
         if not url:
             messagebox.showwarning("Missing URL", "Please enter or paste a valid social media video link!")
             return
 
+        # Security check on URL
+        is_safe_url, url_reason = SecurityValidator.is_safe_url(url)
+        if not is_safe_url:
+            messagebox.showerror("Security Warning", f"The entered link failed security verification:\n\n{url_reason}")
+            return
+
         save_directory = self.path_entry.get().strip() or self.save_dir
+        # Security check on directory
+        is_safe_dir, safe_dir = SecurityValidator.is_safe_directory(save_directory)
+        if not is_safe_dir:
+            messagebox.showerror("Security Warning", f"The chosen save directory failed security verification:\n\n{safe_dir}")
+            return
+
         quality = self.quality_var.get()
 
         self._is_downloading = True
@@ -1061,7 +1091,7 @@ class SocialDartApp(ctk.CTk):
 
         thread = threading.Thread(
             target=self._run_download,
-            args=(url, quality, save_directory),
+            args=(url, quality, safe_dir),
         )
         self.active_download_thread = thread
         thread.daemon = True

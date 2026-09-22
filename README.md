@@ -47,10 +47,13 @@
 - **🎛️ Dynamic Format Selection**:
   - **🎬 Video (MP4)**: Best Available (4K / 1080p), 1080p Full HD, 720p HD, 480p SD.
   - **🎵 Audio Only**: MP3 320kbps (Studio High Quality), MP3 192kbps (Standard), M4A (Original AAC).
-- **🪟 Native Windows Taskbar Integration**:
-  - Dual-logo architecture: Official SocialDart emblem for in-app header, squircle glowing badge for Windows 10/11 Taskbar.
-  - Windows `IPropertyStore` integration setting `PKEY_AppUserModel_ID` and `PKEY_AppUserModel_RelaunchIconResource`.
-  - Silent one-click launchers (`SocialDart.vbs` & `SocialDart.lnk`) without terminal windows.
+- **🛡️ Enterprise Security & Hardening**:
+  - **SSRF & Loopback Shield**: Strict protocol enforcement (HTTP/HTTPS only). Prohibits loopback (`127.0.0.1`, `localhost`) and private RFC 1918 internal subnets (`10.0.0.0/8`, `192.168.0.0/16`, `172.16.0.0/12`).
+  - **Path Traversal & System Folder Protection**: Blocks output to Windows system directories (`C:\Windows`, `Program Files`, root drive).
+  - **Command Injection Prevention**: Pure `subprocess` parameter arrays without `shell=True` for external processes (File Explorer).
+  - **Decompression Bomb Protection**: Pillow pixel limits (`25,000,000 max pixels`) and 5MB network caps for image previews.
+  - **SSL/TLS Integrity**: CA bundle verification via `certifi` and anti-MITM protection.
+  - **Automatic Fragment Cleanup**: Cleans up abandoned `.part` and `.ytdl` files on user cancellation or unexpected error.
 
 ---
 

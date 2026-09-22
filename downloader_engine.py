@@ -2,15 +2,25 @@
 SocialDart Downloader Engine
 High-performance, multi-platform media downloader backend powered by yt-dlp.
 Supports watermark-free downloads, metadata pre-fetching, multi-threading,
-bundled FFmpeg integration, and turbo download speeds.
+bundled FFmpeg integration, turbo download speeds, and enterprise-grade security.
 """
 
 import os
 import re
 import sys
+import time
 import shutil
+import ipaddress
+import urllib.parse
 import threading
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, Tuple
+
+# Check for trusted CA certificates bundle
+try:
+    import certifi
+    CA_BUNDLE = certifi.where()
+except Exception:
+    CA_BUNDLE = None
 
 # Check for bundled FFmpeg from imageio_ffmpeg
 FFMPEG_PATH = None
@@ -29,6 +39,99 @@ except Exception:
     pass
 
 import yt_dlp
+
+
+class SecurityValidator:
+    """Enterprise security validator for SocialDart."""
+
+    MAX_URL_LENGTH = 2048
+
+    @classmethod
+    def is_safe_url(cls, url: str) -> Tuple[bool, str]:
+        """Validate URL to prevent SSRF, protocol injection, and loopback attacks."""
+        if not url or not isinstance(url, str):
+            return False, "URL cannot be empty."
+
+        clean_url = url.strip()
+        if len(clean_url) > cls.MAX_URL_LENGTH:
+            return False, f"URL exceeds maximum allowed length of {cls.MAX_URL_LENGTH} characters."
+
+        # Check for control characters or non-printable ASCII
+        if any(ord(c) < 32 or ord(c) == 127 for c in clean_url):
+            return False, "URL contains invalid or hidden control characters."
+
+        try:
+            parsed = urllib.parse.urlparse(clean_url)
+        except Exception:
+            return False, "Malformed URL format."
+
+        # Scheme check: Strictly enforce HTTP or HTTPS
+        scheme = parsed.scheme.lower()
+        if scheme not in ("http", "https"):
+            return False, f"Insecure protocol '{scheme}'. Only HTTP and HTTPS are permitted."
+
+        hostname = parsed.hostname
+        if not hostname:
+            return False, "Missing or invalid domain host in URL."
+
+        host_lower = hostname.lower()
+
+        # Block localhost and standard loopback identifiers
+        if host_lower in ("localhost", "127.0.0.1", "::1", "0.0.0.0", "local"):
+            return False, "Access to localhost or internal loopback targets is prohibited."
+
+        # Block private IP ranges (RFC 1918, Link-Local, CGNAT, Broadcast)
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                return False, "Access to private or reserved internal network addresses is prohibited."
+        except ValueError:
+            # Hostname is a domain name (not an IP literal), which is standard
+            pass
+
+        return True, "Safe"
+
+    @classmethod
+    def is_safe_directory(cls, path: str) -> Tuple[bool, str]:
+        """Validate destination folder to prevent path traversal and OS corruption."""
+        if not path or not isinstance(path, str):
+            return False, "Directory path cannot be empty."
+
+        try:
+            norm_path = os.path.abspath(os.path.normpath(path.strip()))
+
+            # Disallow writing directly to drive root (e.g. C:\)
+            drive, tail = os.path.splitdrive(norm_path)
+            if tail in ("", "\\", "/"):
+                return False, "Saving directly to the drive root folder is not permitted for security."
+
+            # Disallow protected Windows System directories
+            windir = os.path.normpath(os.environ.get("WINDIR", "C:\\Windows")).lower()
+            progfiles = os.path.normpath(os.environ.get("ProgramFiles", "C:\\Program Files")).lower()
+            progfiles_x86 = os.path.normpath(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")).lower()
+
+            target_lower = norm_path.lower()
+            if (
+                target_lower.startswith(windir)
+                or target_lower.startswith(progfiles)
+                or target_lower.startswith(progfiles_x86)
+            ):
+                return False, "Saving directly into protected Windows operating system folders is prohibited."
+
+            return True, norm_path
+        except Exception as e:
+            return False, f"Invalid destination path: {str(e)}"
+
+    @classmethod
+    def sanitize_error_message(cls, err: Exception) -> str:
+        """Sanitize error messages to avoid leaking sensitive internal system paths."""
+        raw_msg = str(err)
+        # Strip user home directory path if present
+        home_dir = os.path.expanduser("~")
+        if home_dir in raw_msg:
+            raw_msg = raw_msg.replace(home_dir, "~")
+        # Keep clean message length
+        return raw_msg[:120]
 
 
 class PlatformInfo:
@@ -130,15 +233,18 @@ class DownloaderEngine:
     def __init__(self):
         self.ffmpeg_path = FFMPEG_PATH
         self.node_path = shutil.which("node")
-        self._is_cancelled = False
+        self._cancel_event = threading.Event()
 
     def get_base_ydl_opts(self) -> Dict[str, Any]:
-        """Generate base yt-dlp options with anti-bot, ffmpeg, and turbo speed configs."""
+        """Generate base yt-dlp options with anti-bot, ffmpeg, security, and turbo speed configs."""
         opts: Dict[str, Any] = {
-            "nocheckcertificate": True,
             "quiet": True,
             "no_warnings": False,
             "ignoreerrors": False,
+            # Security: Sanitize Windows filenames and strip illegal characters
+            "windowsfilenames": True,
+            # Security: Prevent arbitrary external command execution
+            "external_downloader": None,
             # Turbo multi-threaded fragment downloads
             "concurrent_fragment_downloads": 8,
             "buffersize": 1048576,        # 1MB buffer for fast I/O throughput
@@ -148,6 +254,10 @@ class DownloaderEngine:
             "fragment_retries": 5,
             "retries": 5,
         }
+
+        # Inject trusted CA certificate bundle if available
+        if CA_BUNDLE and os.path.exists(CA_BUNDLE):
+            opts["ca_bundle"] = CA_BUNDLE
 
         # Inject bundled FFmpeg if available
         if self.ffmpeg_path and os.path.exists(self.ffmpeg_path):
@@ -171,7 +281,19 @@ class DownloaderEngine:
         return opts
 
     def fetch_metadata(self, url: str) -> Dict[str, Any]:
-        """Fetch media metadata (title, author, duration, thumbnail, formats) without downloading."""
+        """Fetch media metadata securely without downloading."""
+        # 1. Security Input Validation
+        is_safe, reason = SecurityValidator.is_safe_url(url)
+        if not is_safe:
+            return {
+                "success": False,
+                "error": f"Security Notice: {reason}",
+                "platform": "Unknown",
+                "platform_badge": "⚠️ Insecure URL",
+                "platform_color": "#EF4444",
+                "no_watermark": False,
+            }
+
         platform_meta = PlatformInfo.detect(url)
         opts = self.get_base_ydl_opts()
         opts["extract_flat"] = False
@@ -210,12 +332,16 @@ class DownloaderEngine:
                     or "Social Media Creator"
                 )
 
-                # Thumbnail
+                # Thumbnail URL validation
                 thumbnail_url = (
                     info.get("thumbnail")
                     or (info.get("thumbnails") and info["thumbnails"][-1].get("url"))
                     or ""
                 )
+                if thumbnail_url:
+                    is_thumb_safe, _ = SecurityValidator.is_safe_url(thumbnail_url)
+                    if not is_thumb_safe:
+                        thumbnail_url = ""
 
                 # Available resolutions
                 formats = info.get("formats", [])
@@ -251,7 +377,7 @@ class DownloaderEngine:
         except Exception as e:
             return {
                 "success": False,
-                "error": str(e),
+                "error": SecurityValidator.sanitize_error_message(e),
                 "platform": platform_meta["name"],
                 "platform_badge": platform_meta["badge"],
                 "platform_color": platform_meta["color"],
@@ -267,13 +393,28 @@ class DownloaderEngine:
         finished_callback: Optional[Callable[[str], None]] = None,
         error_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
-        """Download media with live progress updates."""
-        self._is_cancelled = False
+        """Download media with live progress updates and enterprise security controls."""
+        self._cancel_event.clear()
+
+        # 1. URL Security Check
+        is_safe_url, url_reason = SecurityValidator.is_safe_url(url)
+        if not is_safe_url:
+            if error_callback:
+                error_callback(f"Security Rejection: {url_reason}")
+            return
+
+        # 2. Directory Security & Traversal Check
+        is_safe_dir, safe_dir = SecurityValidator.is_safe_directory(save_directory)
+        if not is_safe_dir:
+            if error_callback:
+                error_callback(f"Security Rejection: {safe_dir}")
+            return
+
         opts = self.get_base_ydl_opts()
         
-        # Ensure save directory exists
-        os.makedirs(save_directory, exist_ok=True)
-        opts["outtmpl"] = os.path.join(save_directory, "%(title).100s [%(id)s].%(ext)s")
+        # Ensure save directory exists safely
+        os.makedirs(safe_dir, exist_ok=True)
+        opts["outtmpl"] = os.path.join(safe_dir, "%(title).80s [%(id)s].%(ext)s")
 
         # Configure Quality & Format
         clean_selector = "[format_note!*=watermarked]"
@@ -304,7 +445,6 @@ class DownloaderEngine:
         elif "480p" in quality:
             opts["format"] = f"bestvideo[height<=480]{clean_selector}+bestaudio/best[height<=480]{clean_selector}/best[height<=480]/best"
         else:
-            # Best Available
             opts["format"] = f"bestvideo{clean_selector}+bestaudio/best{clean_selector}/best"
 
         # Merge container configuration if FFmpeg is available
@@ -314,7 +454,7 @@ class DownloaderEngine:
         last_filename = [None]
 
         def _progress_hook(d: Dict[str, Any]):
-            if self._is_cancelled:
+            if self._cancel_event.is_set():
                 raise yt_dlp.utils.DownloadCancelled("Download cancelled by user")
 
             status = d.get("status")
@@ -330,7 +470,6 @@ class DownloaderEngine:
                 
                 percent_str = f"{int(ratio * 100)}%" if total > 0 else "Downloading..."
                 
-                # Format bytes into MB
                 downloaded_mb = downloaded / (1024 * 1024)
                 total_mb = total / (1024 * 1024) if total > 0 else 0
                 size_str = f"{downloaded_mb:.1f} MB / {total_mb:.1f} MB" if total > 0 else f"{downloaded_mb:.1f} MB"
@@ -376,15 +515,33 @@ class DownloaderEngine:
                             downloaded_file = base + ".mp4"
 
                 if finished_callback:
-                    finished_callback(downloaded_file or last_filename[0] or save_directory)
+                    finished_callback(downloaded_file or last_filename[0] or safe_dir)
 
         except yt_dlp.utils.DownloadCancelled:
+            self._cleanup_partial_files(safe_dir)
             if error_callback:
                 error_callback("Download was cancelled.")
         except Exception as e:
+            self._cleanup_partial_files(safe_dir)
             if error_callback:
-                error_callback(f"Download Error: {str(e)}")
+                error_callback(f"Download Error: {SecurityValidator.sanitize_error_message(e)}")
+
+    def _cleanup_partial_files(self, directory: str):
+        """Safely clean up incomplete .part and .ytdl fragments."""
+        try:
+            if os.path.exists(directory):
+                for f in os.listdir(directory):
+                    if f.endswith((".part", ".ytdl")):
+                        filepath = os.path.join(directory, f)
+                        try:
+                            # Only clean fragments modified in the last 15 minutes
+                            if time.time() - os.path.getmtime(filepath) < 900:
+                                os.remove(filepath)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
     def cancel_download(self):
-        """Request download cancellation."""
-        self._is_cancelled = True
+        """Request immediate download cancellation."""
+        self._cancel_event.set()
