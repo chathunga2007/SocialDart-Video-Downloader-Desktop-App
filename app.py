@@ -300,19 +300,37 @@ class SocialDartApp(ctk.CTk):
         self.theme_selector.set("🌙 Dark")
         self.theme_selector.pack(side="left")
 
+        # Header Tools Row: Cookie Manager Button & Engine Badge
+        tools_row = ctk.CTkFrame(right_box, fg_color="transparent")
+        tools_row.pack(side="top", anchor="e")
+
+        self.cookie_btn = ctk.CTkButton(
+            tools_row,
+            text="🍪 YT Cookies",
+            command=self._open_cookie_modal,
+            height=28,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            border_width=1,
+            cursor="hand2",
+        )
+        self.cookie_btn.pack(side="left", padx=(0, 8))
+
         # Engine Status Badge
-        badge_text = "⚡ FFmpeg 7.1 & Turbo No-WM" if FFMPEG_PATH else "⚡ Standard Engine Ready"
+        badge_text = "⚡ FFmpeg 7.1 Ready" if FFMPEG_PATH else "⚡ Standard Engine Ready"
         self.engine_badge = ctk.CTkLabel(
-            right_box,
+            tools_row,
             text=badge_text,
             fg_color=("#ECFDF5", "#064E3B"),
             text_color=("#059669", "#34D399"),
-            corner_radius=10,
+            corner_radius=8,
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            padx=12,
+            padx=10,
             pady=4,
         )
-        self.engine_badge.pack(side="top", anchor="e")
+        self.engine_badge.pack(side="left")
+
+        self._update_cookie_button_state()
 
         # ----------------------------------------------------
         # 2. SCROLLABLE BODY
@@ -380,6 +398,236 @@ class SocialDartApp(ctk.CTk):
         else:
             ctk.set_appearance_mode("Light")
         self.after(50, self._apply_native_taskbar_integration)
+
+    def _update_cookie_button_state(self):
+        """Update the cookie button label and color based on active cookies."""
+        cookie_file = self.engine.get_cookie_file()
+        if cookie_file:
+            self.cookie_btn.configure(
+                text="🍪 Cookies Active ✅",
+                fg_color=("#ECFDF5", "#064E3B"),
+                hover_color=("#D1FAE5", "#065F46"),
+                text_color=("#059669", "#34D399"),
+                border_color=("#6EE7B7", "#059669"),
+            )
+        else:
+            self.cookie_btn.configure(
+                text="🍪 YT Cookies ⚙️",
+                fg_color=("#F8FAFC", "#1E293B"),
+                hover_color=("#F1F5F9", "#334155"),
+                text_color=("#475569", "#94A3B8"),
+                border_color=("#CBD5E1", "#475569"),
+            )
+
+    def _open_cookie_modal(self):
+        """Open modern YouTube Cookie Manager modal dialog."""
+        modal = ctk.CTkToplevel(self)
+        modal.title("YouTube Cookie Manager - SocialDart")
+        modal.geometry("600x500")
+        modal.minsize(560, 460)
+        modal.resizable(False, False)
+        modal.transient(self)
+        modal.grab_set()
+
+        # Center modal over main window
+        try:
+            x = self.winfo_x() + (self.winfo_width() // 2) - 300
+            y = self.winfo_y() + (self.winfo_height() // 2) - 250
+            modal.geometry(f"+{max(50, x)}+{max(50, y)}")
+        except Exception:
+            pass
+
+        content = ctk.CTkFrame(
+            modal,
+            fg_color=("#FFFFFF", "#0D1117"),
+            corner_radius=0,
+        )
+        content.pack(fill="both", expand=True, padx=22, pady=22)
+
+        # Header Title
+        title_lbl = ctk.CTkLabel(
+            content,
+            text="🍪 YouTube Cookie Manager",
+            font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
+            text_color=("#0284C7", "#38BDF8"),
+        )
+        title_lbl.pack(anchor="w", pady=(0, 4))
+
+        desc_lbl = ctk.CTkLabel(
+            content,
+            text="Bypass YouTube 'Sign in to confirm you're not a bot' challenges & download restricted / music videos seamlessly.",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color=("#64748B", "#94A3B8"),
+            wraplength=540,
+            justify="left",
+        )
+        desc_lbl.pack(anchor="w", pady=(0, 15))
+
+        # Status Card
+        status_card = ctk.CTkFrame(
+            content,
+            fg_color=("#F8FAFC", "#161B22"),
+            corner_radius=10,
+            border_width=1,
+            border_color=("#E2E8F0", "#30363D"),
+        )
+        status_card.pack(fill="x", pady=(0, 15), padx=2)
+
+        status_header = ctk.CTkLabel(
+            status_card,
+            text="Active Status:",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=("#475569", "#94A3B8"),
+        )
+        status_header.pack(anchor="w", padx=14, pady=(10, 2))
+
+        status_val_lbl = ctk.CTkLabel(
+            status_card,
+            text="",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            wraplength=520,
+            justify="left",
+        )
+        status_val_lbl.pack(anchor="w", padx=14, pady=(0, 10))
+
+        def _refresh_status():
+            cookie = self.engine.get_cookie_file()
+            if cookie:
+                try:
+                    size_kb = os.path.getsize(cookie) / 1024
+                    filename = os.path.basename(cookie)
+                    status_val_lbl.configure(
+                        text=f"✅ Active: {filename} ({size_kb:.1f} KB)\n📍 Path: {cookie}",
+                        text_color=("#15803D", "#34D399"),
+                    )
+                except Exception:
+                    status_val_lbl.configure(
+                        text=f"✅ Active: {cookie}",
+                        text_color=("#15803D", "#34D399"),
+                    )
+            else:
+                status_val_lbl.configure(
+                    text="⚠️ No cookies loaded. YouTube may block music videos or prompt bot checks.",
+                    text_color=("#D97706", "#FBBF24"),
+                )
+
+        _refresh_status()
+
+        # Action Buttons
+        btn_row = ctk.CTkFrame(content, fg_color="transparent")
+        btn_row.pack(fill="x", pady=(0, 15))
+
+        def _import_cookie():
+            selected = filedialog.askopenfilename(
+                title="Select Exported cookies.txt",
+                filetypes=[("Text / Cookie Files", "*.txt"), ("All Files", "*.*")],
+                parent=modal,
+            )
+            if selected and os.path.exists(selected):
+                dest = os.path.abspath(os.path.join(os.path.dirname(__file__), "cookies.txt"))
+                try:
+                    import shutil
+                    shutil.copy2(selected, dest)
+                    self.engine.set_cookie_file(dest)
+                except Exception:
+                    self.engine.set_cookie_file(selected)
+
+                self._update_cookie_button_state()
+                _refresh_status()
+                messagebox.showinfo(
+                    "Cookies Loaded Successfully",
+                    "cookies.txt is now active! SocialDart can now download YouTube bot-protected videos without interruptions.",
+                    parent=modal,
+                )
+
+        def _clear_cookie():
+            local_dest = os.path.abspath(os.path.join(os.path.dirname(__file__), "cookies.txt"))
+            if os.path.exists(local_dest):
+                try:
+                    os.remove(local_dest)
+                except Exception:
+                    pass
+            self.engine.set_cookie_file(None)
+            self._update_cookie_button_state()
+            _refresh_status()
+            messagebox.showinfo("Cookies Removed", "YouTube cookies have been cleared.", parent=modal)
+
+        import_btn = ctk.CTkButton(
+            btn_row,
+            text="📁 Import cookies.txt File",
+            command=_import_cookie,
+            height=34,
+            corner_radius=8,
+            fg_color="#0284C7",
+            hover_color="#0369A1",
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            cursor="hand2",
+        )
+        import_btn.pack(side="left", padx=(0, 10))
+
+        clear_btn = ctk.CTkButton(
+            btn_row,
+            text="🗑️ Remove Cookies",
+            command=_clear_cookie,
+            height=34,
+            corner_radius=8,
+            fg_color=("#F1F5F9", "#21262D"),
+            hover_color=("#E2E8F0", "#30363D"),
+            text_color=("#EF4444", "#F87171"),
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            cursor="hand2",
+        )
+        clear_btn.pack(side="left")
+
+        # Guide / Instructions Card
+        guide_card = ctk.CTkFrame(
+            content,
+            fg_color=("#F1F5F9", "#161B22"),
+            corner_radius=10,
+            border_width=1,
+            border_color=("#E2E8F0", "#30363D"),
+        )
+        guide_card.pack(fill="both", expand=True, pady=(0, 15), padx=2)
+
+        guide_title = ctk.CTkLabel(
+            guide_card,
+            text="⚡ How to export cookies.txt in 20 seconds (Free & Easy):",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=("#0F172A", "#F8FAFC"),
+        )
+        guide_title.pack(anchor="w", padx=14, pady=(10, 4))
+
+        guide_steps = (
+            "1. In Chrome or Brave, install the free extension 'Get cookies.txt LOCALLY'.\n"
+            "2. Visit youtube.com while logged into your Google / YouTube account.\n"
+            "3. Click the extension icon and click 'Export' to download cookies.txt.\n"
+            "4. Click 'Import cookies.txt File' above and select the downloaded file."
+        )
+        guide_steps_lbl = ctk.CTkLabel(
+            guide_card,
+            text=guide_steps,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=("#475569", "#94A3B8"),
+            justify="left",
+        )
+        guide_steps_lbl.pack(anchor="w", padx=14, pady=(0, 10))
+
+        # Close button
+        close_btn = ctk.CTkButton(
+            content,
+            text="Close",
+            command=modal.destroy,
+            height=30,
+            width=100,
+            corner_radius=8,
+            fg_color=("#E2E8F0", "#21262D"),
+            hover_color=("#CBD5E1", "#30363D"),
+            text_color=("#334155", "#E6EDF3"),
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            cursor="hand2",
+        )
+        close_btn.pack(anchor="e")
 
     def _build_platform_chips(self, parent):
         """Render supported social media platform badges with hover animations."""
@@ -1022,9 +1270,22 @@ class SocialDartApp(ctk.CTk):
             self.progress_status_lbl.configure(text="Status: Video details loaded ✨", text_color=("#15803D", "#34D399"))
         else:
             err_msg = meta.get("error", "Failed to fetch metadata")
-            self.preview_frame.configure(border_color=("#E2E8F0", "#1F293D"))
-            self.footer_status.configure(text=f"Inspection note: {err_msg[:60]}")
-            self.progress_status_lbl.configure(text="Status: Ready (Metadata skipped)", text_color=("#64748B", "#94A3B8"))
+            lower_err = err_msg.lower()
+            if "bot" in lower_err or "cookies" in lower_err:
+                self.preview_frame.configure(border_color=("#F59E0B", "#D97706"))
+                self.footer_status.configure(text="YouTube Bot Verification required for this video.")
+                self.progress_status_lbl.configure(
+                    text="⚠️ YouTube Bot Check: Click '🍪 Cookies' in top bar to unlock!",
+                    text_color="#F59E0B",
+                )
+                self.preview_title.configure(text="🔒 YouTube Sign-in Verification Required")
+                self.preview_details.configure(
+                    text="YouTube requires an authenticated session for this video. Click '🍪 Cookies' in the top bar to attach cookies.txt."
+                )
+            else:
+                self.preview_frame.configure(border_color=("#E2E8F0", "#1F293D"))
+                self.footer_status.configure(text=f"Inspection note: {err_msg[:60]}")
+                self.progress_status_lbl.configure(text="Status: Ready (Metadata skipped)", text_color=("#64748B", "#94A3B8"))
 
     def _load_thumbnail(self, thumb_url: str):
         """Fetch and render thumbnail image safely with decompression bomb and memory protections."""
@@ -1184,7 +1445,16 @@ class SocialDartApp(ctk.CTk):
         self.footer_status.configure(text=err_msg[:80])
         
         if "cancelled" not in err_msg.lower():
-            messagebox.showerror("Download Error", f"Could not complete download:\n\n{err_msg}")
+            lower_err = err_msg.lower()
+            if "youtube requires sign-in cookies" in lower_err or "bot" in lower_err or "login_required" in lower_err:
+                resp = messagebox.askyesno(
+                    "YouTube Bot Verification",
+                    f"{err_msg}\n\nWould you like to open the YouTube Cookie Manager now to attach your cookies.txt?",
+                )
+                if resp:
+                    self._open_cookie_modal()
+            else:
+                messagebox.showerror("Download Error", f"Could not complete download:\n\n{err_msg}")
 
     def cancel_download(self):
         """Cancel the ongoing download."""
