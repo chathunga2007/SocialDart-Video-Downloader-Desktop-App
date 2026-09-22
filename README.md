@@ -39,6 +39,11 @@
   - 🌐 **1000+ Websites** supported via the underlying engine
 - **📦 Bundled FFmpeg 7.1**: Integrated zero-config audio-video stream merging and studio-grade MP3 audio conversion without requiring manual system PATH setup.
 - **⚡ Turbo Speed Downloader**: 8 multi-threaded concurrent fragment streams with 10MB chunk buffering for blazing download throughput.
+- **🍪 YouTube Cookie Manager (Anti-Bot Bypass)**:
+  - 1-click **Cookie Manager** built directly into the top navigation.
+  - Seamlessly imports `cookies.txt` to bypass YouTube's *"Sign in to confirm you're not a bot"* challenges on music videos, Vevo, and age-restricted content.
+  - Built-in step-by-step export guide using free browser extensions.
+  - Auto-discovery of local `cookies.txt` across workspace and system paths.
 - **🎨 Modern Cyber-Luxe UI**:
   - High-contrast **Dark Mode** & **Light Mode** one-click switcher.
   - Interactive button micro-animations (Flash click effects, cyclic loading spinners).
