@@ -63,6 +63,8 @@ Output/
 .env.*
 *.local
 cookies.txt
+cookies_backup.txt
+cookies*.txt
 *.cookies
 *.cookie
 
