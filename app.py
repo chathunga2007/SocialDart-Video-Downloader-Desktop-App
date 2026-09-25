@@ -542,7 +542,9 @@ class SocialDartApp(ctk.CTk):
             )
             if selected and os.path.exists(selected):
                 is_valid, has_yt, msg = self.engine.validate_cookie_file(selected)
-                dest = os.path.abspath(os.path.join(os.path.dirname(__file__), "cookies.txt"))
+                user_socialdart_dir = os.path.abspath(os.path.join(os.path.expanduser("~"), ".socialdart"))
+                os.makedirs(user_socialdart_dir, exist_ok=True)
+                dest = os.path.join(user_socialdart_dir, "cookies.txt")
                 try:
                     import shutil
                     shutil.copy2(selected, dest)
@@ -566,12 +568,14 @@ class SocialDartApp(ctk.CTk):
                     )
 
         def _clear_cookie():
+            user_dest = os.path.abspath(os.path.join(os.path.expanduser("~"), ".socialdart", "cookies.txt"))
             local_dest = os.path.abspath(os.path.join(os.path.dirname(__file__), "cookies.txt"))
-            if os.path.exists(local_dest):
-                try:
-                    os.remove(local_dest)
-                except Exception:
-                    pass
+            for target in [user_dest, local_dest]:
+                if os.path.exists(target):
+                    try:
+                        os.remove(target)
+                    except Exception:
+                        pass
             self.engine.set_cookie_file(None)
             self._update_cookie_button_state()
             _refresh_status()
