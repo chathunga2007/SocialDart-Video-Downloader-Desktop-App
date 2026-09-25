@@ -22,26 +22,52 @@ try:
 except Exception:
     CA_BUNDLE = None
 
-# Check for bundled FFmpeg from imageio_ffmpeg
-FFMPEG_PATH = None
-try:
-    import imageio_ffmpeg
-    raw_ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-    if raw_ffmpeg and os.path.exists(raw_ffmpeg):
-        ffmpeg_dir = os.path.dirname(raw_ffmpeg)
-        # Create standard ffmpeg.exe alias if needed by yt-dlp
-        std_ffmpeg = os.path.join(ffmpeg_dir, "ffmpeg.exe")
-        if not os.path.exists(std_ffmpeg):
-            try:
-                shutil.copyfile(raw_ffmpeg, std_ffmpeg)
-            except Exception:
-                pass
-        FFMPEG_PATH = std_ffmpeg if os.path.exists(std_ffmpeg) else raw_ffmpeg
-        # Prepend to PATH so external subprocesses and yt-dlp can locate it seamlessly
-        if ffmpeg_dir not in os.environ.get("PATH", ""):
-            os.environ["PATH"] = ffmpeg_dir + os.path.pathsep + os.environ.get("PATH", "")
-except Exception:
-    FFMPEG_PATH = shutil.which("ffmpeg")
+def find_ffmpeg_path() -> Optional[str]:
+    """Find FFmpeg binary across app directories, assets, imageio_ffmpeg, and system PATH."""
+    app_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    exe_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else app_dir
+
+    # 1. Check local assets and app directory
+    search_paths = [
+        os.path.join(exe_dir, "assets", "ffmpeg.exe"),
+        os.path.join(app_dir, "assets", "ffmpeg.exe"),
+        os.path.join(exe_dir, "ffmpeg.exe"),
+        os.path.join(app_dir, "ffmpeg.exe"),
+    ]
+    for p in search_paths:
+        if os.path.exists(p) and os.path.isfile(p):
+            f_dir = os.path.dirname(p)
+            if f_dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = f_dir + os.path.pathsep + os.environ.get("PATH", "")
+            return p
+
+    # 2. Check bundled imageio_ffmpeg
+    try:
+        import imageio_ffmpeg
+        raw_ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        if raw_ffmpeg and os.path.exists(raw_ffmpeg):
+            ffmpeg_dir = os.path.dirname(raw_ffmpeg)
+            std_ffmpeg = os.path.join(ffmpeg_dir, "ffmpeg.exe")
+            if not os.path.exists(std_ffmpeg):
+                try:
+                    shutil.copyfile(raw_ffmpeg, std_ffmpeg)
+                except Exception:
+                    pass
+            chosen = std_ffmpeg if os.path.exists(std_ffmpeg) else raw_ffmpeg
+            if ffmpeg_dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = ffmpeg_dir + os.path.pathsep + os.environ.get("PATH", "")
+            return chosen
+    except Exception:
+        pass
+
+    # 3. Check system PATH
+    sys_ffmpeg = shutil.which("ffmpeg")
+    if sys_ffmpeg:
+        return sys_ffmpeg
+
+    return None
+
+FFMPEG_PATH = find_ffmpeg_path()
 
 def find_node_path() -> Optional[str]:
     """Find Node.js binary for solving modern YouTube JS challenges."""
