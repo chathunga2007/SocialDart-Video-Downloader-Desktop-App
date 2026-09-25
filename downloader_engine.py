@@ -26,9 +26,38 @@ except Exception:
 FFMPEG_PATH = None
 try:
     import imageio_ffmpeg
-    FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
+    raw_ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    if raw_ffmpeg and os.path.exists(raw_ffmpeg):
+        ffmpeg_dir = os.path.dirname(raw_ffmpeg)
+        # Create standard ffmpeg.exe alias if needed by yt-dlp
+        std_ffmpeg = os.path.join(ffmpeg_dir, "ffmpeg.exe")
+        if not os.path.exists(std_ffmpeg):
+            try:
+                shutil.copyfile(raw_ffmpeg, std_ffmpeg)
+            except Exception:
+                pass
+        FFMPEG_PATH = std_ffmpeg if os.path.exists(std_ffmpeg) else raw_ffmpeg
+        # Prepend to PATH so external subprocesses and yt-dlp can locate it seamlessly
+        if ffmpeg_dir not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = ffmpeg_dir + os.path.pathsep + os.environ.get("PATH", "")
 except Exception:
     FFMPEG_PATH = shutil.which("ffmpeg")
+
+def find_node_path() -> Optional[str]:
+    """Find Node.js binary for solving modern YouTube JS challenges."""
+    node = shutil.which("node")
+    if node:
+        return node
+    candidates = [
+        r"C:\nvm4w\nodejs\node.exe",
+        r"C:\Program Files\nodejs\node.exe",
+        r"C:\Program Files (x86)\nodejs\node.exe",
+        os.path.expanduser(r"~\AppData\Roaming\nvm\current\node.exe"),
+    ]
+    for c in candidates:
+        if os.path.exists(c) and os.path.isfile(c):
+            return c
+    return None
 
 # Check for ImpersonateTarget from yt_dlp
 IMPERSONATE_TARGET = None
@@ -135,7 +164,7 @@ class SecurityValidator:
             or ("bot" in lower_msg and "confirm" in lower_msg)
             or "login_required" in lower_msg
         ):
-            return "YouTube Bot Verification: YouTube requires sign-in cookies for this video. Click '🍪 Cookies' in the top bar to attach your cookies.txt file."
+            return "YouTube Bot Verification: YouTube blocked this request with a bot check. You can attach cookies via the top bar or try another network."
 
         # Strip user home directory path if present
         home_dir = os.path.expanduser("~")
@@ -243,12 +272,42 @@ class DownloaderEngine:
     
     def __init__(self):
         self.ffmpeg_path = FFMPEG_PATH
-        self.node_path = shutil.which("node")
+        self.node_path = find_node_path()
         self._cancel_event = threading.Event()
         self.cookie_file: Optional[str] = self._discover_cookie_file()
 
+    @staticmethod
+    def validate_cookie_file(path: Optional[str]) -> Tuple[bool, bool, str]:
+        """
+        Validate whether cookie file exists and check if it contains YouTube/Google cookies.
+        Returns: (is_valid_file, has_youtube_cookies, summary_message)
+        """
+        if not path or not os.path.exists(path) or not os.path.isfile(path) or os.path.getsize(path) < 10:
+            return False, False, "No cookies loaded."
+        
+        has_yt = False
+        total_cookies = 0
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    parts = line.split("\t")
+                    if len(parts) >= 7:
+                        total_cookies += 1
+                        domain = parts[0].lower()
+                        if "youtube.com" in domain or "google.com" in domain:
+                            has_yt = True
+            if has_yt:
+                return True, True, f"Active: Valid ({total_cookies} cookies, YouTube Session Verified ✅)"
+            else:
+                return True, False, f"Notice: {total_cookies} cookies found, but no YouTube session detected ⚠️"
+        except Exception as e:
+            return False, False, f"Failed to read cookies file: {str(e)}"
+
     def _discover_cookie_file(self) -> Optional[str]:
-        """Automatically discover valid cookies.txt files in common paths."""
+        """Automatically discover valid cookies.txt files with real YouTube credentials."""
         candidates = [
             os.path.abspath(os.path.join(os.path.dirname(__file__), "cookies.txt")),
             os.path.abspath(os.path.join(os.path.dirname(__file__), "assets", "cookies.txt")),
@@ -256,7 +315,9 @@ class DownloaderEngine:
             os.path.abspath(os.path.join(os.path.expanduser("~"), "Downloads", "cookies.txt")),
         ]
         for path in candidates:
-            if os.path.exists(path) and os.path.isfile(path) and os.path.getsize(path) > 10:
+            is_valid, has_yt, _ = self.validate_cookie_file(path)
+            # Only auto-bind cookie file if it actually contains YouTube cookies
+            if is_valid and has_yt:
                 return path
         return None
 
@@ -276,7 +337,7 @@ class DownloaderEngine:
             return self.cookie_file
         return None
 
-    def get_base_ydl_opts(self) -> Dict[str, Any]:
+    def get_base_ydl_opts(self, platform_name: str = "") -> Dict[str, Any]:
         """Generate base yt-dlp options with anti-bot, ffmpeg, security, and turbo speed configs."""
         opts: Dict[str, Any] = {
             "quiet": True,
@@ -286,8 +347,8 @@ class DownloaderEngine:
             "windowsfilenames": True,
             # Security: Prevent arbitrary external command execution
             "external_downloader": None,
-            # Turbo multi-threaded fragment downloads
-            "concurrent_fragment_downloads": 8,
+            # Multi-threaded fragment downloads without socket saturation
+            "concurrent_fragment_downloads": 4,
             "buffersize": 1048576,        # 1MB buffer for fast I/O throughput
             "http_chunk_size": 10485760,   # 10MB chunks to prevent CDN speed throttling
             "extractor_retries": 3,
@@ -302,26 +363,35 @@ class DownloaderEngine:
 
         # Inject bundled FFmpeg if available
         if self.ffmpeg_path and os.path.exists(self.ffmpeg_path):
-            opts["ffmpeg_location"] = self.ffmpeg_path
+            opts["ffmpeg_location"] = os.path.dirname(self.ffmpeg_path)
 
-        # Inject Chrome Impersonation via curl_cffi if supported
-        if IMPERSONATE_TARGET:
+        # Inject Node.js runtime for JavaScript challenges if available
+        if self.node_path:
+            opts["js_runtimes"] = {"node": {"path": self.node_path}}
+
+        # Enable remote EJS challenge solver for YouTube (solves player JS challenges automatically)
+        opts["remote_components"] = ["ejs:github"]
+
+        is_youtube = platform_name.lower() == "youtube"
+
+        # Inject Chrome Impersonation via curl_cffi for TikTok & others,
+        # but avoid on YouTube where it causes connection timeouts
+        if IMPERSONATE_TARGET and not is_youtube:
             opts["impersonate"] = IMPERSONATE_TARGET
 
-        # Inject Node.js runtime for YouTube JS challenges if available
-        if self.node_path:
-            opts["js_runtimes"] = {"node": {}}
-
-        # Inject active cookies file if available
+        # Inject active cookies file if available and verified
         active_cookie = self.get_cookie_file()
         if active_cookie:
-            opts["cookiefile"] = active_cookie
+            is_valid, has_yt, _ = self.validate_cookie_file(active_cookie)
+            if is_youtube:
+                if is_valid and has_yt:
+                    opts["cookiefile"] = active_cookie
+            else:
+                if is_valid:
+                    opts["cookiefile"] = active_cookie
 
-        # Extractor specific args for TikTok no-watermark bypass and YouTube fallbacks
+        # Extractor specific args for TikTok no-watermark bypass
         opts["extractor_args"] = {
-            "youtube": {
-                "player_client": ["web", "mweb", "android"],
-            },
             "tiktok": {
                 "app_version": ["latest"],
             },
@@ -344,7 +414,7 @@ class DownloaderEngine:
             }
 
         platform_meta = PlatformInfo.detect(url)
-        opts = self.get_base_ydl_opts()
+        opts = self.get_base_ydl_opts(platform_name=platform_meta["name"])
         opts["extract_flat"] = False
 
         try:
@@ -459,7 +529,8 @@ class DownloaderEngine:
                 error_callback(f"Security Rejection: {safe_dir}")
             return
 
-        opts = self.get_base_ydl_opts()
+        platform_meta = PlatformInfo.detect(url)
+        opts = self.get_base_ydl_opts(platform_name=platform_meta["name"])
         
         # Ensure save directory exists safely
         os.makedirs(safe_dir, exist_ok=True)
