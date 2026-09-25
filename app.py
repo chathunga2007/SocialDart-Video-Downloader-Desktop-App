@@ -403,13 +403,23 @@ class SocialDartApp(ctk.CTk):
         """Update the cookie button label and color based on active cookies."""
         cookie_file = self.engine.get_cookie_file()
         if cookie_file:
-            self.cookie_btn.configure(
-                text="🍪 Cookies Active ✅",
-                fg_color=("#ECFDF5", "#064E3B"),
-                hover_color=("#D1FAE5", "#065F46"),
-                text_color=("#059669", "#34D399"),
-                border_color=("#6EE7B7", "#059669"),
-            )
+            is_valid, has_yt, _ = self.engine.validate_cookie_file(cookie_file)
+            if has_yt:
+                self.cookie_btn.configure(
+                    text="🍪 Cookies Active ✅",
+                    fg_color=("#ECFDF5", "#064E3B"),
+                    hover_color=("#D1FAE5", "#065F46"),
+                    text_color=("#059669", "#34D399"),
+                    border_color=("#6EE7B7", "#059669"),
+                )
+            else:
+                self.cookie_btn.configure(
+                    text="🍪 Cookies (No YT) ⚠️",
+                    fg_color=("#FEF3C7", "#78350F"),
+                    hover_color=("#FDE68A", "#92400E"),
+                    text_color=("#D97706", "#FBBF24"),
+                    border_color=("#FCD34D", "#D97706"),
+                )
         else:
             self.cookie_btn.configure(
                 text="🍪 YT Cookies ⚙️",
@@ -423,16 +433,16 @@ class SocialDartApp(ctk.CTk):
         """Open modern YouTube Cookie Manager modal dialog."""
         modal = ctk.CTkToplevel(self)
         modal.title("YouTube Cookie Manager - SocialDart")
-        modal.geometry("600x500")
-        modal.minsize(560, 460)
+        modal.geometry("620x540")
+        modal.minsize(580, 500)
         modal.resizable(False, False)
         modal.transient(self)
         modal.grab_set()
 
         # Center modal over main window
         try:
-            x = self.winfo_x() + (self.winfo_width() // 2) - 300
-            y = self.winfo_y() + (self.winfo_height() // 2) - 250
+            x = self.winfo_x() + (self.winfo_width() // 2) - 310
+            y = self.winfo_y() + (self.winfo_height() // 2) - 270
             modal.geometry(f"+{max(50, x)}+{max(50, y)}")
         except Exception:
             pass
@@ -458,7 +468,7 @@ class SocialDartApp(ctk.CTk):
             text="Bypass YouTube 'Sign in to confirm you're not a bot' challenges & download restricted / music videos seamlessly.",
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=("#64748B", "#94A3B8"),
-            wraplength=540,
+            wraplength=560,
             justify="left",
         )
         desc_lbl.pack(anchor="w", pady=(0, 15))
@@ -485,7 +495,7 @@ class SocialDartApp(ctk.CTk):
             status_card,
             text="",
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            wraplength=520,
+            wraplength=540,
             justify="left",
         )
         status_val_lbl.pack(anchor="w", padx=14, pady=(0, 10))
@@ -496,10 +506,17 @@ class SocialDartApp(ctk.CTk):
                 try:
                     size_kb = os.path.getsize(cookie) / 1024
                     filename = os.path.basename(cookie)
-                    status_val_lbl.configure(
-                        text=f"✅ Active: {filename} ({size_kb:.1f} KB)\n📍 Path: {cookie}",
-                        text_color=("#15803D", "#34D399"),
-                    )
+                    is_valid, has_yt, msg = self.engine.validate_cookie_file(cookie)
+                    if has_yt:
+                        status_val_lbl.configure(
+                            text=f"✅ Active: {filename} ({size_kb:.1f} KB)\n📍 Status: Verified YouTube Session Active!\n📁 Path: {cookie}",
+                            text_color=("#15803D", "#34D399"),
+                        )
+                    else:
+                        status_val_lbl.configure(
+                            text=f"⚠️ Notice: {filename} ({size_kb:.1f} KB)\n⚠️ Warning: No YouTube cookies detected in this file!\n📁 Path: {cookie}",
+                            text_color=("#D97706", "#FBBF24"),
+                        )
                 except Exception:
                     status_val_lbl.configure(
                         text=f"✅ Active: {cookie}",
@@ -507,8 +524,8 @@ class SocialDartApp(ctk.CTk):
                     )
             else:
                 status_val_lbl.configure(
-                    text="⚠️ No cookies loaded. YouTube may block music videos or prompt bot checks.",
-                    text_color=("#D97706", "#FBBF24"),
+                    text="⚡ Standard Engine Ready (Direct YouTube downloads enabled).\n💡 If YouTube prompts a bot check, attach your exported cookies.txt here.",
+                    text_color=("#0284C7", "#38BDF8"),
                 )
 
         _refresh_status()
@@ -524,6 +541,7 @@ class SocialDartApp(ctk.CTk):
                 parent=modal,
             )
             if selected and os.path.exists(selected):
+                is_valid, has_yt, msg = self.engine.validate_cookie_file(selected)
                 dest = os.path.abspath(os.path.join(os.path.dirname(__file__), "cookies.txt"))
                 try:
                     import shutil
@@ -534,11 +552,18 @@ class SocialDartApp(ctk.CTk):
 
                 self._update_cookie_button_state()
                 _refresh_status()
-                messagebox.showinfo(
-                    "Cookies Loaded Successfully",
-                    "cookies.txt is now active! SocialDart can now download YouTube bot-protected videos without interruptions.",
-                    parent=modal,
-                )
+                if has_yt:
+                    messagebox.showinfo(
+                        "Cookies Loaded Successfully",
+                        "cookies.txt is now active with verified YouTube session credentials!\n\nAll YouTube videos can now be downloaded without bot interruptions.",
+                        parent=modal,
+                    )
+                else:
+                    messagebox.showwarning(
+                        "Cookie Notice",
+                        "The imported cookies.txt does not appear to contain YouTube session cookies.\n\nMake sure to visit youtube.com while logged in before exporting cookies.",
+                        parent=modal,
+                    )
 
         def _clear_cookie():
             local_dest = os.path.abspath(os.path.join(os.path.dirname(__file__), "cookies.txt"))
@@ -592,17 +617,17 @@ class SocialDartApp(ctk.CTk):
 
         guide_title = ctk.CTkLabel(
             guide_card,
-            text="⚡ How to export cookies.txt in 20 seconds (Free & Easy):",
+            text="⚡ How to export cookies in 20 seconds (Quick & Easy Guide):",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color=("#0F172A", "#F8FAFC"),
         )
         guide_title.pack(anchor="w", padx=14, pady=(10, 4))
 
         guide_steps = (
-            "1. In Chrome or Brave, install the free extension 'Get cookies.txt LOCALLY'.\n"
+            "1. In Chrome, Brave or Edge, install the free extension 'Get cookies.txt LOCALLY'.\n"
             "2. Visit youtube.com while logged into your Google / YouTube account.\n"
             "3. Click the extension icon and click 'Export' to download cookies.txt.\n"
-            "4. Click 'Import cookies.txt File' above and select the downloaded file."
+            "4. Click 'Import cookies.txt File' above and select your downloaded file."
         )
         guide_steps_lbl = ctk.CTkLabel(
             guide_card,
@@ -611,7 +636,22 @@ class SocialDartApp(ctk.CTk):
             text_color=("#475569", "#94A3B8"),
             justify="left",
         )
-        guide_steps_lbl.pack(anchor="w", padx=14, pady=(0, 10))
+        guide_steps_lbl.pack(anchor="w", padx=14, pady=(0, 6))
+
+        ext_url = "https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc"
+        ext_btn = ctk.CTkButton(
+            guide_card,
+            text="🌐 Get Extension for Chrome / Brave / Edge (Web Store)",
+            command=lambda: webbrowser.open(ext_url),
+            height=28,
+            corner_radius=6,
+            fg_color=("#E0F2FE", "#1E293B"),
+            hover_color=("#BAE6FD", "#334155"),
+            text_color=("#0284C7", "#38BDF8"),
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            cursor="hand2",
+        )
+        ext_btn.pack(anchor="w", padx=14, pady=(0, 10))
 
         # Close button
         close_btn = ctk.CTkButton(
